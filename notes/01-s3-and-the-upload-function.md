@@ -66,3 +66,19 @@ def upload_image(local_path: Path) -> str:
 - Called `.putObject(` (camelCase) instead of `.put_object(` — a JavaScript habit from reading Nik-Blog's own `s3Service.js` right before writing this.
 - Chained `boto3.client(...).put_object(...)` directly into the `s3` variable, which would have made `s3` hold the API response instead of the reusable client — split into two statements.
 - Missing comma between keyword arguments — not a logic bug, just Python syntax (every `name=value` pair in a call needs one after it except the last).
+
+## A real limitation found later, not at build time
+
+The first version hardcoded `ContentType="image/png"` on every upload — it worked for the one test image, but Nik-Blog's own upload form also accepts short video clips (`video/mp4`, `video/webm`, per `backend/middleware/uploadImage.js`'s allowed types). Nikan asked whether this server could handle video too, which is what actually surfaced it: technically yes, since the function just reads and uploads raw bytes regardless of type — but every upload would land on S3 tagged `image/png`, including an actual `.mp4` file.
+
+The frontend itself doesn't care — `isVideoUrl.ts` decides image-vs-video from the URL's file extension, not the S3 object's `Content-Type` header — but a video served with the wrong `Content-Type` can still fail to play correctly in a browser, since that header is what tells the browser how to actually handle the response.
+
+Fixed with Python's built-in `mimetypes` module instead of a hardcoded value:
+
+```python
+content_type, _ = mimetypes.guess_type(local_path.name)
+if content_type is None:
+    content_type = "application/octet-stream"
+```
+
+Verified for real, not just by reading the code: uploaded a real file and then called `s3.head_object()` to read back the object's actual stored `Content-Type` from S3 — confirmed it matches the file's real type, not a guess from what the function returns.
