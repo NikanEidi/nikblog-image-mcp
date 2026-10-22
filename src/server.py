@@ -28,6 +28,45 @@ def list_notes() -> str:
     return response.text
 
 @mcp.tool()
+def get_prompt_writing_context(project_id: int) -> str:
+    """Get everything needed to write a new Gemini cover-image prompt for
+    one project: that project's real title and description, plus the full
+    text of every existing gemini-prompt-*.md file already written for
+    other projects. Use the existing ones to match the exact noir+copper
+    style and structure, and to avoid reusing a visual metaphor that's
+    already been used for a different project. Call this before writing a
+    new prompt; call save_image_prompt once the new prompt is written."""
+    project = nikblog_client.get_project(project_id)
+
+    assets_dir = Path(os.environ["NIKBLOG_REPO_PATH"]) / "notes" / "assets"
+    existing_prompts = []
+    for prompt_file in sorted(assets_dir.glob("gemini-prompt-*.md")):
+        existing_prompts.append(f"--- {prompt_file.name} ---\n{prompt_file.read_text()}")
+
+    return (
+        f"Project: {project['title']}\n"
+        f"Description: {project['description']}\n\n"
+        f"=== Existing prompts (for style + to avoid repeating a motif) ===\n\n"
+        + "\n\n".join(existing_prompts)
+    )
+
+
+@mcp.tool()
+def save_image_prompt(project_id: int, prompt_markdown: str) -> str:
+    """Save a newly written Gemini image prompt as a new file, following
+    the same naming convention as every existing one:
+    notes/assets/gemini-prompt-<project-slug>.md. Call get_prompt_writing_context
+    first to write a prompt that matches the existing style."""
+    project = nikblog_client.get_project(project_id)
+    slug = project["slug"]
+
+    assets_dir = Path(os.environ["NIKBLOG_REPO_PATH"]) / "notes" / "assets"
+    prompt_path = assets_dir / f"gemini-prompt-{slug}.md"
+    prompt_path.write_text(prompt_markdown)
+
+    return f"Saved prompt to {prompt_path}"
+
+@mcp.tool()
 def upload_project_image(
     project_id: int,
     local_image_path: str,
